@@ -1,5 +1,6 @@
-import { Message } from './line';
-import { columnHeader, getColumnIndexMap } from './spreadsheet';
+import { columnHeader, getColumnIndexMap, Row } from './spreadsheet'
+import { Message, sendPushMessage, sendReplyMessage } from './line'
+
 export const main = () => {
   console.log('🐛 debug : テスト')
 }
@@ -83,4 +84,72 @@ const add = (text: string, replyToken: string, userId: string): void => {
     },
   ]
   sendReplyMessage(replyToken, messages)
+}
+
+/**
+ * リマインドメッセージを送信する
+ * @param replyToken
+ */
+const sendError = (replyToken: string): void => {
+  const messages = [
+    {
+      type: 'text',
+      text: '登録 <日付(月/日)> <メッセージ>の形式で入力してください',
+    },
+  ]
+  sendReplyMessage(replyToken, messages)
+}
+
+export const remind = () => {
+  // スプレッドシートを開く
+  const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet()
+  const sheet = activeSpreadsheet.getSheetByName('シート1')
+  if (!sheet) {
+    throw new Error('sheet not found')
+  }
+  // 列のインデックスを取得
+  const columnIndexMap = getColumnIndexMap(sheet)
+
+  // 今日の日付を取得
+  const today = new Date()
+  const todayMonth = today.getMonth() + 1
+  const todayDate = today.getDate()
+
+  // データを取得して、今日の日付のデータを抽出する
+  const rows = sheet.getDataRange().getValues()
+  type UserId = string
+  // ユーザーごとにメッセージをまとめる
+  const useMessageMap = rows.reduce<Record<UserId, Message[]>>((acc: Record<UserId, Message[]>, row: Row) => {
+    const rowDate = row[columnIndexMap.date]
+    const rowDateObj = new Date(rowDate)
+    // // 今日の日付のデータの場合、メッセージを格納する
+    if (
+      rowDateObj.getMonth() + 1 === todayMonth &&
+      rowDateObj.getDate() === todayDate
+    ) {
+      // 既に同じユーザーに対するメッセージの配列がある場合、メッセージを追加する
+      if (acc[row[columnIndexMap.user_id]]) {
+        acc[row[columnIndexMap.user_id]].push({
+          type: 'text',
+          text: row[columnIndexMap.message],
+        })
+      } else {
+        // まだ同じユーザーに対するメッセージの配列がない場合、新しくメッセージの配列を作成する
+        acc[row[columnIndexMap.user_id]] = [
+          {
+            type: 'text',
+            text: row[columnIndexMap.message],
+          },
+        ]
+      }
+    }
+    return acc
+  },
+  {} as Record<UserId, Message[]>
+)
+  // ユーザーごとにメッセージを送信する
+  for (const userId in useMessageMap) {
+    const messages = useMessageMap[userId]
+    sendPushMessage(userId, messages)
+  }
 }
